@@ -1,15 +1,21 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Path to the package file
+# Determine script location and repository root
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+cd "$REPO_ROOT"
+
 PKG_FILE="pkgs/numara.nix"
 
-# Temporary file for editing
-TMP_FILE=$(mktemp)
+if [ ! -f "$PKG_FILE" ]; then
+    echo "Error: Package file not found at $PKG_FILE"
+    exit 1
+fi
 
-# Helper to get current version from the nix file
+# Helper to get current version
 get_current_version() {
-    grep -oP 'version = "\K[^"]+' "$PKG_FILE"
+    grep -oP 'version = "\K[^"]+' "$PKG_FILE" || echo ""
 }
 
 # Fetch latest tag from GitHub API
@@ -18,43 +24,34 @@ if [ -z "$LATEST_TAG" ] || [ "$LATEST_TAG" == "null" ]; then
     echo "Failed to fetch latest tag"
     exit 1
 fi
-LATEST_VERSION="${LATEST_TAG#v}"  # remove leading 'v' if present
-
+LATEST_VERSION="${LATEST_TAG#v}"   # remove leading 'v'
 CURRENT_VERSION=$(get_current_version)
+
 echo "Current version: $CURRENT_VERSION"
 echo "Latest version:  $LATEST_VERSION"
 
-if [ "$CURRENT_VERSION" == "$LATEST_VERSION" ]; then
+if [ "$CURRENT_VERSION" = "$LATEST_VERSION" ]; then
     echo "Already up to date."
     exit 0
 fi
 
-echo "Updating to version $LATEST_VERSION"
+echo "Updating to $LATEST_VERSION"
 
-# Update the version in the package file
+# Update version line
 sed -i "s/version = \".*\";/version = \"$LATEST_VERSION\";/" "$PKG_FILE"
 
 # Compute new source hash using nix-prefetch-git
-# The 'rev' is the tag name (e.g., "v7.4.1")
-NEW_SRC_HASH=$(nix-prefetch-git --url https://github.com/bornova/numara-calculator --rev "$LATEST_TAG" --fetch-submodules | jq -r .sha256)
-# Convert to SRI format (nix-prefetch-git gives base64? Actually it gives a hash that can be used directly in fetchFromGitHub if prefixed with sha256-)
-# We need to use the format "sha256-<base64>" - but nix-prefetch-git outputs a base64 hash without prefix.
-# So we prepend "sha256-"
-NEW_SRC_HASH="sha256-${NEW_SRC_HASH}"
+# nix-prefetch-git returns JSON with sha256 in base64 (no prefix)
+NEW_SRC_HASH_RAW=$(nix-prefetch-git --url https://github.com/bornova/numara-calculator --rev "$LATEST_TAG" --fetch-submodules | jq -r .sha256)
+NEW_SRC_HASH="sha256-${NEW_SRC_HASH_RAW}"
 echo "New source hash: $NEW_SRC_HASH"
-
-# Update the src hash in the package file
 sed -i "s|hash = \"sha256-.*\";|hash = \"$NEW_SRC_HASH\";|" "$PKG_FILE"
 
-# Now update npmDepsHash
-# We'll set a dummy value and run the build to get the correct hash
+# Update npmDepsHash – set dummy to force hash mismatch
 DUMMY_HASH="sha256-0000000000000000000000000000000000000000000000000000"
 sed -i "s|npmDepsHash = \"sha256-.*\";|npmDepsHash = \"$DUMMY_HASH\";|" "$PKG_FILE"
 
-# Build the package with the dummy hash – the build will fail and print the correct hash.
-# We capture the error output and extract the hash.
-# The error message looks like: "error: hash mismatch in fixed-output derivation ..."
-# We'll run nix-build in a subshell and capture stderr.
+# Build to get correct npmDepsHash
 set +e
 BUILD_OUTPUT=$(nix-build -E "with import <nixpkgs> {}; callPackage ./pkgs/numara.nix {}" 2>&1)
 BUILD_EXIT=$?
@@ -65,21 +62,18 @@ if [ $BUILD_EXIT -eq 0 ]; then
     exit 1
 fi
 
-# Extract the correct npmDepsHash from the error message.
-# The message contains something like: "got: sha256-ABCD... expected: sha256-..."
-# We want the 'got' hash.
+# Extract the "got:" hash from the error
 CORRECT_HASH=$(echo "$BUILD_OUTPUT" | grep -oP 'got:\s+\Ksha256-[a-zA-Z0-9+/=]+' | head -1)
 if [ -z "$CORRECT_HASH" ]; then
-    echo "Could not extract correct npmDepsHash from build output:"
+    echo "Could not extract correct npmDepsHash. Build output:"
     echo "$BUILD_OUTPUT"
     exit 1
 fi
 
 echo "Correct npmDepsHash: $CORRECT_HASH"
-# Update the npmDepsHash in the file
 sed -i "s|npmDepsHash = \"sha256-.*\";|npmDepsHash = \"$CORRECT_HASH\";|" "$PKG_FILE"
 
-# Ensure the package builds now
+# Final verification
 nix-build -E "with import <nixpkgs> {}; callPackage ./pkgs/numara.nix {}" --no-out-link
 
 echo "Update completed successfully. Version: $LATEST_VERSION"
