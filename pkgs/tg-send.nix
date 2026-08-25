@@ -15,7 +15,7 @@ stdenv.mkDerivation rec {
     owner = "oggaboogadoogidydo";
     repo = "tg-send";
     rev = "main";
-    sha256 = "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";  # replace with actual hash
+    sha256 = "sha256-1m74d4zpimb32198wi2d9di3h6m7ah89z32n5qjrks2laycqgczl=";  # replace with actual hash
   };
 
   nativeBuildInputs = [ makeWrapper ];
