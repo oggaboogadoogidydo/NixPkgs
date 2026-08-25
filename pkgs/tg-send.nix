@@ -76,7 +76,7 @@ WRAPPER
     description = "Simple Linux command-line tool to send messages to Telegram via a bot";
     homepage = "https://github.com/oggaboogadoogidydo/tg-send";
     # The repository does not specify a license; replace with the actual one (e.g., "mit", "gpl3", etc.)
-    license = licenses.unfree;
+    license = licenses.mit;
     maintainers = [ maintainers.me ];
     platforms = platforms.unix;
   };
