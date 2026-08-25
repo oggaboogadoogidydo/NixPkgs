@@ -1,4 +1,11 @@
-{ appimageTools, fetchurl, lib, makeDesktopItem, symlinkJoin, pkgs }:
+{ appimageTools
+, fetchurl
+, lib
+, makeDesktopItem
+, symlinkJoin
+, runCommand
+, hicolor-icon-theme
+}:
 
 let
   version = "1.3.6";   # Check latest at https://github.com/homelab-00/TranscriptionSuite/releases
@@ -6,18 +13,19 @@ let
 
   src = fetchurl {
     url = "https://github.com/homelab-00/TranscriptionSuite/releases/download/v${version}/TranscriptionSuite-${version}.AppImage";
-    hash = ""; # Replace with actual SHA256 after first build
+    hash = ""; # Replace with the correct SHA256 after first build
   };
 
+  # Wrap the AppImage so it runs on NixOS
   wrapped = appimageTools.wrapType2 {
     inherit pname version src;
-    extraPkgs = _: [ ];   # no extra packages needed
   };
 
+  # Desktop entry – Icon set to just the name (will be resolved by the system)
   desktopItem = makeDesktopItem {
     name = pname;
     exec = "${wrapped}/bin/${pname}";
-    icon = "${wrapped}/share/icons/hicolor/256x256/apps/${pname}.png";
+    icon = pname;
     desktopName = "TranscriptionSuite";
     comment = "Fully local Speech‑to‑Text with speaker diarization";
     categories = [ "AudioVideo" "Utility" ];
@@ -25,36 +33,21 @@ let
     startupNotify = true;
   };
 
-  fallbackIcon = pkgs.runCommand "transcriptionsuite-icon" { } ''
+  # Provide an icon – use the one from the AppImage if present, otherwise a generic one
+  icon = runCommand "${pname}-icon" { } ''
     mkdir -p $out/share/icons/hicolor/256x256/apps
-    cp ${pkgs.hicolor-icon-theme}/share/icons/hicolor/256x256/status/audio-volume-high.png \
-       $out/share/icons/hicolor/256x256/apps/${pname}.png
+    if [ -e "${wrapped}/share/icons/hicolor/256x256/apps/${pname}.png" ]; then
+      cp "${wrapped}/share/icons/hicolor/256x256/apps/${pname}.png" \
+         "$out/share/icons/hicolor/256x256/apps/${pname}.png"
+    else
+      cp "${hicolor-icon-theme}/share/icons/hicolor/256x256/status/audio-volume-high.png" \
+         "$out/share/icons/hicolor/256x256/apps/${pname}.png"
+    fi
   '';
 
-in
-symlinkJoin {
+in symlinkJoin {
   name = "${pname}-${version}";
-  paths = [
-    wrapped
-    desktopItem
-    fallbackIcon
-  ];
-  postBuild = ''
-    # Ensure the icon is available at the location expected by the desktop file
-    mkdir -p $out/share/icons/hicolor/256x256/apps
-    if [ -e ${wrapped}/share/icons/hicolor/256x256/apps/${pname}.png ]; then
-      ln -sf ${wrapped}/share/icons/hicolor/256x256/apps/${pname}.png \
-             $out/share/icons/hicolor/256x256/apps/${pname}.png
-    else
-      ln -sf ${fallbackIcon}/share/icons/hicolor/256x256/apps/${pname}.png \
-             $out/share/icons/hicolor/256x256/apps/${pname}.png
-    fi
-    # Copy the desktop file and adjust the Icon entry to just the name
-    cp ${desktopItem}/share/applications/*.desktop $out/share/applications/
-    substituteInPlace $out/share/applications/*.desktop \
-      --replace "Icon=${wrapped}/share/icons/hicolor/256x256/apps/${pname}.png" \
-                "Icon=${pname}"
-  '';
+  paths = [ wrapped desktopItem icon ];
   meta = with lib; {
     description = "Fully local and private Speech-To-Text app with speaker diarization";
     homepage = "https://github.com/homelab-00/TranscriptionSuite";
