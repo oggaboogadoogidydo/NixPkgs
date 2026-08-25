@@ -12,7 +12,7 @@ stdenv.mkDerivation rec {
     owner = "oggaboogadoogidydo";
     repo = "tg-send";
     rev = "main";                     # pin to a specific commit for reproducibility
-    sha256 = lib.fakeSha256;          # replace with actual src hash after first build
+    sha256 = "sha256-V+HC8D1j4rHBDyvqmYJFjgWVIQDJlxSiECpfLCaVx0Y=";          # replace with actual src hash after first build
   };
 
   dontBuild = true;
