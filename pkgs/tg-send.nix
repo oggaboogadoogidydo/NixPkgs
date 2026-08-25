@@ -1,57 +1,71 @@
-{ stdenv
-, python3
+{ lib
+, buildGoModule
 , fetchFromGitHub
-, makeWrapper
+, stdenv
 }:
 
-let
-  pythonEnv = python3.withPackages (ps: [ ps.requests ]);
-in
-stdenv.mkDerivation rec {
+buildGoModule rec {
   pname = "tg-send";
-  version = "unstable-2024-12-20";  # use the latest commit date
+  version = "unstable-2026-08-25";   # update to a real date or tag
 
   src = fetchFromGitHub {
     owner = "oggaboogadoogidydo";
     repo = "tg-send";
+    # Replace with a specific commit hash for reproducibility.
+    # Use "main" only temporarily; compute the hash after first build.
     rev = "main";
-    sha256 = "sha256-jiKfkmfB9+AowPGyHXvWzGEY6nZTyBq/HO3XgWSGUJk=";  # replace with actual hash
+    sha256 = lib.fakeSha256;          # replace with actual src hash after first build
   };
 
-  nativeBuildInputs = [ makeWrapper ];
+  # Replace with the actual vendor hash after the first build attempt.
+  vendorHash = "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";
 
-  installPhase = ''
-    runHook preInstall
+  # Build the main package; adjust if the binary is in a subdirectory (e.g., cmd/tg-send)
+  subPackages = [ "." ];
 
-    # Install the script
-    install -Dm755 tg-send $out/bin/tg-send-real
+  postInstall = ''
+    # Move the built binary to libexec so we can wrap it
+    mkdir -p $out/libexec/tg-send
+    mv $out/bin/tg-send $out/libexec/tg-send/tg-send
 
-    # Create a wrapper that:
-    # 1. Creates ~/.config/tg-send/ with a template config if missing
-    # 2. Runs the real script with the Python environment
-    makeWrapper ${pythonEnv}/bin/python3 $out/bin/tg-send \
-      --add-flags "$out/bin/tg-send-real" \
-      --run 'if [ ! -f "$HOME/.config/tg-send/config" ]; then
-               mkdir -p "$HOME/.config/tg-send"
-               cat > "$HOME/.config/tg-send/config" <<EOF
-# Telegram Bot Token – get one from @BotFather on Telegram
-token = YOUR_BOT_TOKEN_HERE
-
-# Chat ID – numeric ID or @username of the channel/group/user
-chat_id = YOUR_CHAT_ID_HERE
+    # Install a default configuration file (example)
+    mkdir -p $out/share/tg-send
+    cat > $out/share/tg-send/config.default <<'EOF'
+# Default configuration for tg-send
+# Edit this file to suit your needs.
+# It will be copied to ~/.config/tg-send/config when the wrapper runs.
 EOF
-               echo "Created default config file at ~/.config/tg-send/config"
-               echo "Please edit it with your token and chat ID."
-             fi'
 
-    runHook postInstall
+    # Create the wrapper script that ensures a user config exists
+    mkdir -p $out/bin
+    cat > $out/bin/tg-send <<'WRAPPER'
+#!${stdenv.shell}
+CONFIG_DIR="$HOME/.config/tg-send"
+CONFIG_FILE="$CONFIG_DIR/config"
+
+if [ ! -f "$CONFIG_FILE" ]; then
+    mkdir -p "$CONFIG_DIR"
+    cp "@defaultConfig@" "$CONFIG_FILE"
+    echo "Created default config at $CONFIG_FILE" >&2
+fi
+
+exec "@binary@" "$@"
+WRAPPER
+
+    # Substitute paths in the wrapper
+    substituteInPlace $out/bin/tg-send \
+      --replace '@defaultConfig@' "$out/share/tg-send/config.default" \
+      --replace '@binary@' "$out/libexec/tg-send/tg-send"
+
+    chmod +x $out/bin/tg-send
   '';
 
-  meta = with stdenv.lib; {
-    description = "Lightweight Linux command-line tool to send messages to Telegram via a bot";
+  meta = with lib; {
+    description = "A tool to send messages via Telegram";
     homepage = "https://github.com/oggaboogadoogidydo/tg-send";
-    license = licenses.mit;  # adjust if a license is specified
-    platforms = platforms.linux;
-    maintainers = [ maintainers.yourname ];
+    # Replace with the actual license (e.g., mit, gpl, etc.)
+    license = licenses.unfree;
+    maintainers = [ maintainers.me ];
+    platforms = platforms.unix;
   };
 }
